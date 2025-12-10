@@ -1,74 +1,82 @@
+import friendReqModel from "../model/friendRequest.model.js";
 import UserModel from "../model/user.model.js";
-import jwtAuth from 'jsonwebtoken'
-import dotenv from 'dotenv'
-dotenv.config();
-export async function register(req,res){
-   try {
-    const {fullName, email, password}=req.body;
-    if(!fullName || !email || !password){
-        return res.status(400).send("insufficient input");
-    }
-    // regx for email valid
-    const regex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-    if(!regex.test(email)){
-        return res.status(400).send("Invalid email address");
-    }
-    // password check
-    if(password?.length<6){
-        return res.status(400).send("invalid password");
-    }
-    // if email already exist
-    const result=await UserModel.find({email});
-    if(result){
-        return res.status(400).send("email already exists")
-    }
-    // create new user
-    const newUser=UserModel({fullName,email,password});
-    await newUser.save();
-    return res.status(201).send(newUser);
-   } catch (error) {
-    console.log("error in register controller");
-    return res.status(500).send(error);
-   }
-}
-
-// login
-export async function login(req,res){
+async function getRecommendedUsers(req,res){
     try {
-        const {email,password}=req.body;
-        if(!email || !password){
-            return res.status(400).send("insufficient input");
-        }
-        const user=await UserModel.findOne({email});
+        const currentUserId=req.user.id;
+        const user=await UserModel.findById(currentUserId);
         if(!user){
-            return res.status(400).send("invalid username or password");
+            return res.status(400).send("invalid user");
         }
-        console.log("Hiiii");
-        const result=await user.passwordCheck(password);
-        if(!result){
-            return res.status(400).send("invalid username or password");
-        }
-        const token=jwtAuth.sign({ id: user._id, email: user.email },process.env.JWT_SECRET,{expiresIn:7*24*60*60*1000})
-        res.cookie("authToken",token,{
-            httpOnly:true,
-            secure:false,
-            sameSite:"strict",
-            maxAge:7*24*60*60*1000
-        })
-        return res.status(200).send(user)
+        const users=await UserModel.find({$and:[
+            {_id: { 
+                $ne: currentUserId,              // exclude yourself
+                $nin: user.friends               // also exclude friends
+            }},
+            {isOnboarded:true}
+        ]});
+        // if(users?.length===0){
+        //     return res.status(400).send("no reco")
+        // }
+        return res.status(200).send(users); 
     } catch (error) {
-        console.log("error in login controller");
-        return res.status(500).send(error);
+        console.log("error in getRecommendedUsers controller");
+        return res.status(500).send(error?.message);
     }
 }
 
-// logout
-export async function logout(req,res){
+async function getMyFriends(req,res){
     try {
-        res.clearCookie("authToken")
-        return res.status(200).send("Logout successfull");
+        const currentUserId=req.user.id;
+        const user=await UserModel.findOne({
+            _id:currentUserId
+        }).populate("friends","_id fullName nativeLanguage location email");
+        return res.status(200).send(user.friends);
     } catch (error) {
-        console.log("error in logOut controller");
-        return res.status(500).send(error);
+        console.log("error in getMyFriends controller");
+        return res.status(500).send(error?.message);
     }
 }
+
+async function sendRequest(req, res) {
+    try {
+        const myId = req.user.id; // or req.user._id depending on JWT
+        const { id: receiverId } = req.params;
+
+        // 1. Check receiver exists
+        const receiverUser = await UserModel.findById(receiverId);
+        if (!receiverUser) {
+            return res.status(400).send("User not found");
+        }
+
+        // 2. Check if already friends
+        const currUser = await UserModel.findById(myId);
+        if (currUser.friends.map(f => f.toString()).includes(receiverUser._id.toString())) {
+            return res.status(400).send("User is already a friend");
+        }
+
+        // 3. Check if friend request already exists
+        const request = await friendReqModel.findOne({
+            $or: [
+                { sender: currUser._id, receiver: receiverUser._id },
+                { sender: receiverUser._id, receiver: currUser._id }
+            ]
+        });
+
+        if (request) {
+            return res.status(400).send("Friend request already exists");
+        }
+
+        // 4. Create new request
+        const newRequest = await friendReqModel.create({
+            sender: currUser._id,
+            receiver: receiverUser._id
+        });
+
+        return res.status(201).send(newRequest);
+
+    } catch (error) {
+        console.log("error in sendRequest:", error);
+        return res.status(500).send(error.message);
+    }
+}
+export {getMyFriends,getRecommendedUsers,sendRequest};

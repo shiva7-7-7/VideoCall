@@ -1,10 +1,11 @@
 import { Router } from "express";
-import { login, logout, register } from "../controller/user.controller.js";
+import { getMyFriends, getRecommendedUsers, sendRequest } from "../controller/user.controller.js";
+import auth from "../middlewares/Authorization.js";
 
-const userRouter=Router();
-userRouter.post('/register',register);
-userRouter.post('/login',login);
-userRouter.post('/logout',logout);
+const userRoutes=Router();
+userRoutes.use(auth)
+userRoutes.get('/',getRecommendedUsers)
+userRoutes.get('/friends',getMyFriends)
+userRoutes.post('/request/:id',sendRequest)
 
-
-export default userRouter
+export default userRoutes;
