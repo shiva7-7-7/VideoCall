@@ -20,3 +20,12 @@ export async function upsertUser(userData){
         return false;
     }
 }
+
+export function generateStreamToken(userId) {
+    try {
+        const id=userId.toString();
+        return streamClient.createToken(id);
+    } catch (error) {
+        console.log("error in getStreamToken "+error.message);
+    }
+}
